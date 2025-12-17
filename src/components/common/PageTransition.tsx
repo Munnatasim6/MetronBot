@@ -24,11 +24,11 @@ const PageTransition: React.FC<PageTransitionProps> = ({ children }) => {
   return (
     <motion.div
       variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      initial='initial'
+      animate='animate'
+      exit='exit'
       transition={{ duration: 0.3 }}
-      className="w-full h-full"
+      className='w-full h-full'
     >
       {children}
     </motion.div>

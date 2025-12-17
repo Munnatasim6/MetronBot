@@ -114,7 +114,10 @@ const Header: React.FC = () => {
               title={metrics.apiWeight > 80 ? 'Warning: High API Load' : 'API Load Normal'}
             >
               <div className='flex items-center gap-2 text-xs font-mono text-gray-400'>
-                <Wifi size={12} className={metrics.ping > 100 ? 'text-neon-red' : 'text-gray-500'} />
+                <Wifi
+                  size={12}
+                  className={metrics.ping > 100 ? 'text-neon-red' : 'text-gray-500'}
+                />
                 <span className={metrics.ping > 100 ? 'text-red-400' : ''}>
                   API PING: {metrics.ping}ms
                 </span>
@@ -188,10 +191,11 @@ const Header: React.FC = () => {
               onClick={() => toggleSystem(!!userSettings.apiKey)}
               className={`
                             ml-4 px-6 py-2 rounded font-bold font-mono text-sm flex items-center gap-2 transition-all
-                            ${status === SystemStatus.RUNNING
-                  ? 'bg-red-500/10 text-red-500 border border-red-500/50 hover:bg-red-500 hover:text-white'
-                  : 'bg-neon-green/10 text-neon-green border border-neon-green/50 hover:bg-neon-green hover:text-black'
-                }
+                            ${
+                              status === SystemStatus.RUNNING
+                                ? 'bg-red-500/10 text-red-500 border border-red-500/50 hover:bg-red-500 hover:text-white'
+                                : 'bg-neon-green/10 text-neon-green border border-neon-green/50 hover:bg-neon-green hover:text-black'
+                            }
                         `}
             >
               {status === SystemStatus.RUNNING ? (
@@ -206,7 +210,7 @@ const Header: React.FC = () => {
             </button>
           </div>
         </div>
-      </header >
+      </header>
 
       <SettingsModal
         isOpen={showSettings}

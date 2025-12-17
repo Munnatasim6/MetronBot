@@ -44,64 +44,60 @@ const SentimentPanel: React.FC = () => {
   const [tokenizerInput, setTokenizerInput] = useState('Bitcoin ETF approved by SEC');
 
   // Mock Data Generators
-  const [hypeData, setHypeData] = useState<any[]>([]);
-  const [whaleTx, setWhaleTx] = useState<any[]>([]);
-  const [tokenValues, setTokenValues] = useState<number[]>([]);
+  // Derived State (replaces effect)
+  const tokenValues = React.useMemo(
+    () => tokenizerInput.split(' ').map(() => Math.floor(Math.random() * 30000)),
+    [tokenizerInput],
+  );
 
-  useEffect(() => {
-    setTokenValues(tokenizerInput.split(' ').map(() => Math.floor(Math.random() * 30000)));
-  }, [tokenizerInput]);
-
-  useEffect(() => {
-    // Init Hype Data
-    const initData = Array.from({ length: 20 }, (_, i) => ({
+  // Mock Data Generators - Lazy Initializers
+  const [hypeData] = useState<any[]>(() =>
+    Array.from({ length: 20 }, (_, i) => ({
       time: i,
       btc: 500 + Math.random() * 200,
       sol: 300 + Math.random() * 500,
       eth: 400 + Math.random() * 100,
-    }));
-    setHypeData(initData);
+    })),
+  );
 
-    // Mock Whale Data
-    setWhaleTx([
-      {
-        hash: '0x8a...9f2',
-        coin: 'BTC',
-        amount: 1250,
-        value: '$58.2M',
-        from: 'Wallet (Old)',
-        to: 'Binance',
-        type: 'INFLOW',
-      },
-      {
-        hash: '0x3b...1c4',
-        coin: 'ETH',
-        amount: 15000,
-        value: '$32.1M',
-        from: 'Coinbase',
-        to: 'Wallet (New)',
-        type: 'OUTFLOW',
-      },
-      {
-        hash: '0x1d...8a1',
-        coin: 'SOL',
-        amount: 500000,
-        value: '$25.5M',
-        from: 'Unknown',
-        to: 'Unknown',
-        type: 'TRANSFER',
-      },
-      {
-        hash: '0x9e...2b3',
-        coin: 'USDT',
-        amount: 100000000,
-        value: '$100M',
-        from: 'Tether Treasury',
-        to: 'Binance',
-        type: 'MINT',
-      },
-    ]);
-  }, []);
+  const [whaleTx] = useState<any[]>(() => [
+    {
+      hash: '0x8a...9f2',
+      coin: 'BTC',
+      amount: 1250,
+      value: '$58.2M',
+      from: 'Wallet (Old)',
+      to: 'Binance',
+      type: 'INFLOW',
+    },
+    {
+      hash: '0x3b...1c4',
+      coin: 'ETH',
+      amount: 15000,
+      value: '$32.1M',
+      from: 'Coinbase',
+      to: 'Wallet (New)',
+      type: 'OUTFLOW',
+    },
+    {
+      hash: '0x1d...8a1',
+      coin: 'SOL',
+      amount: 500000,
+      value: '$25.5M',
+      from: 'Unknown',
+      to: 'Unknown',
+      type: 'TRANSFER',
+    },
+    {
+      hash: '0x9e...2b3',
+      coin: 'USDT',
+      amount: 100000000,
+      value: '$100M',
+      from: 'Tether Treasury',
+      to: 'Binance',
+      type: 'MINT',
+    },
+  ]);
 
   // Helper for Fear Color
   const getFearColor = (val: number) => {
@@ -270,10 +266,10 @@ const SentimentPanel: React.FC = () => {
                         <td className='p-2'>
                           <span
                             className={`text-[10px] px-2 py-0.5 rounded font-bold ${news.sent === 'Bullish'
-                              ? 'bg-green-500/10 text-green-400'
-                              : news.sent === 'Bearish'
-                                ? 'bg-red-500/10 text-red-400'
-                                : 'bg-gray-700 text-gray-400'
+                                ? 'bg-green-500/10 text-green-400'
+                                : news.sent === 'Bearish'
+                                  ? 'bg-red-500/10 text-red-400'
+                                  : 'bg-gray-700 text-gray-400'
                               }`}
                           >
                             {news.sent}
@@ -396,9 +392,7 @@ const SentimentPanel: React.FC = () => {
                         className='flex flex-col items-center p-1 bg-gray-800 rounded border border-gray-700 min-w-[40px]'
                       >
                         <span className='text-[10px] text-cyan-300'>{word}</span>
-                        <span className='text-[8px] text-gray-500'>
-                          {tokenValues[i] || 0}
-                        </span>
+                        <span className='text-[8px] text-gray-500'>{tokenValues[i] || 0}</span>
                       </div>
                     ))}
                   </div>
@@ -583,10 +577,10 @@ const SentimentPanel: React.FC = () => {
                         <td className='p-3 text-right'>
                           <span
                             className={`px-2 py-1 rounded font-bold ${tx.type === 'INFLOW'
-                              ? 'bg-red-500/10 text-red-400'
-                              : tx.type === 'OUTFLOW'
-                                ? 'bg-green-500/10 text-green-400'
-                                : 'bg-gray-800 text-gray-400'
+                                ? 'bg-red-500/10 text-red-400'
+                                : tx.type === 'OUTFLOW'
+                                  ? 'bg-green-500/10 text-green-400'
+                                  : 'bg-gray-800 text-gray-400'
                               }`}
                           >
                             {tx.type}

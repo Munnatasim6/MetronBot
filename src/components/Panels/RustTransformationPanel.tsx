@@ -38,30 +38,25 @@ type Tab = 'FOUNDATION' | 'CONNECTIVITY' | 'DATA_ENGINE' | 'AI_EXECUTION';
 
 const RustTransformationPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('FOUNDATION');
-  const [throughput, setThroughput] = useState<any[]>([]);
-  const [latencyDiff, setLatencyDiff] = useState<any[]>([]);
-
-  // Mock Data Generators
-  useEffect(() => {
-    // Generate Throughput Data (Events/Sec)
+  // Mock Data Generators - Lazy Initializers
+  const [throughput] = useState<any[]>(() => {
     const tData = [];
     for (let i = 0; i < 20; i++) {
       tData.push({
         time: i,
         python: 1200 + Math.random() * 200,
-        rust: 45000 + Math.random() * 5000, // Rust is vastly faster
+        rust: 45000 + Math.random() * 5000,
       });
     }
-    setThroughput(tData);
+    return tData;
+  });
 
-    // Latency Distribution (Microseconds)
-    setLatencyDiff([
-      { metric: 'JSON Parse', py: 450, rust: 12 },
-      { metric: 'Order Book', py: 1200, rust: 45 },
-      { metric: 'Risk Check', py: 350, rust: 2 },
-      { metric: 'Net IO', py: 200, rust: 15 },
-    ]);
-  }, []);
+  const [latencyDiff] = useState<any[]>(() => [
+    { metric: 'JSON Parse', py: 450, rust: 12 },
+    { metric: 'Order Book', py: 1200, rust: 45 },
+    { metric: 'Risk Check', py: 350, rust: 2 },
+    { metric: 'Net IO', py: 200, rust: 15 },
+  ]);
 
   return (
     <div className='p-6 h-full flex flex-col animate-fade-in bg-gray-950'>
