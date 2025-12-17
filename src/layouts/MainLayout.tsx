@@ -1,14 +1,17 @@
 import React, { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from '../components/Sidebar/Sidebar';
 import Header from '../components/Header/Header';
 import ErrorBoundary from '../components/common/ErrorBoundary';
+import { AnimatePresence } from 'framer-motion';
+import PageTransition from '../components/common/PageTransition';
 import { useAppStore } from '../store/useAppStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { SystemStatus } from '../types';
 import { playSound } from '../services/soundService';
 
 const MainLayout: React.FC = () => {
+  const location = useLocation();
   // Store State for Global Effects
   const { status, soundEnabled, addLog } = useAppStore();
   const { riskConfig } = useSettingsStore();
@@ -45,9 +48,13 @@ const MainLayout: React.FC = () => {
         <Header />
 
         {/* --- DYNAMIC CONTENT AREA --- */}
-        <div className='flex-1 flex flex-col overflow-hidden relative'>
+        <div className='flex-1 p-6 overflow-auto'>
           <ErrorBoundary>
-            <Outlet />
+            <AnimatePresence mode='wait'>
+              <PageTransition key={location.pathname}>
+                <Outlet />
+              </PageTransition>
+            </AnimatePresence>
           </ErrorBoundary>
         </div>
       </main>

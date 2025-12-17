@@ -1,8 +1,9 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import Loading from './components/common/Loading';
 import PageViewTracker from './components/common/PageViewTracker';
+import { Toaster } from 'sonner';
 
 // Lazy load pages for better performance
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -13,7 +14,8 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <>
+      <Toaster richColors position='top-right' />
       <PageViewTracker />
       <Suspense fallback={<Loading />}>
         <Routes>
@@ -27,7 +29,7 @@ const App: React.FC = () => {
           </Route>
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </>
   );
 };
 

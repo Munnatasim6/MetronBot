@@ -1,8 +1,9 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React from 'react';
 import { Activity, XCircle, Edit, Trash2 } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { Position, LogEntry, RiskConfig } from '../../types';
 import OrderFlowMeter from '../Widgets/OrderFlowMeter';
+import { Virtuoso } from 'react-virtuoso';
 
 interface DashboardPanelProps {
   metrics: {
@@ -34,27 +35,6 @@ const DashboardPanel: React.FC<DashboardPanelProps> = ({
   onCloseAllPositions,
   onEditPosition,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [userHasScrolled, setUserHasScrolled] = useState(false);
-
-  // --- LOGIC: CONSOLE AUTO-SCROLL ---
-  useEffect(() => {
-    if (!userHasScrolled && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, userHasScrolled]);
-
-  const handleConsoleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    // If user is within 20px of bottom, consider them "at bottom" and re-enable auto-scroll
-    const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 20;
-    if (isAtBottom) {
-      setUserHasScrolled(false);
-    } else {
-      setUserHasScrolled(true);
-    }
-  };
-
   const filteredLogs = logFilter === 'ALL' ? logs : logs.filter((l) => l.type === logFilter);
 
   return (
@@ -210,16 +190,12 @@ const DashboardPanel: React.FC<DashboardPanelProps> = ({
               </button>
             </div>
           </div>
-          <div
-            ref={scrollRef}
-            onScroll={handleConsoleScroll}
-            className='flex-1 overflow-y-auto font-mono text-xs space-y-1.5 scroll-smooth custom-scrollbar pr-1'
-          >
-            {filteredLogs.map((log) => (
-              <div
-                key={log.id}
-                className='flex gap-2 animate-fade-in-up border-b border-gray-900/50 pb-0.5'
-              >
+          <Virtuoso
+            data={filteredLogs}
+            followOutput={'auto'}
+            className='flex-1 font-mono text-xs custom-scrollbar'
+            itemContent={(_, log) => (
+              <div className='flex gap-2 animate-fade-in-up border-b border-gray-900/50 pb-0.5 pt-1'>
                 <span className='text-gray-600 shrink-0 select-none'>[{log.timestamp}]</span>
                 <span
                   className={`
@@ -234,11 +210,13 @@ const DashboardPanel: React.FC<DashboardPanelProps> = ({
                   {log.message}
                 </span>
               </div>
-            ))}
-            {filteredLogs.length === 0 && (
-              <div className='text-gray-800 italic text-center mt-10'>No logs to display</div>
             )}
-          </div>
+          />
+          {filteredLogs.length === 0 && (
+            <div className='text-gray-800 italic text-center mt-4 absolute w-full top-20 pointer-events-none'>
+              No logs to display
+            </div>
+          )}
         </div>
       </div>
     </div>
