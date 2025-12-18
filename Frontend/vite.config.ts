@@ -7,8 +7,18 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     server: {
-      port: 3000,
-      host: '0.0.0.0',
+      host: true, // এটি অত্যন্ত জরুরি ডকারের জন্য
+      port: 5173,
+      watch: {
+        usePolling: true, // উইন্ডোজ এ ফাইল চেঞ্জ ডিটেকশনের জন্য জরুরি
+      },
+      proxy: {
+        '/api': {
+          target: 'http://backend:8000', // ডকার নেটওয়ার্কের নাম ব্যবহার করা হয়েছে
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
     plugins: [
       react(),

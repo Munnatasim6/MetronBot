@@ -1,7 +1,64 @@
 services:
-  app:
-    build: .
-    container_name: metron-app
+  # 🧠 Backend (FastAPI) - ১.৫ জিবি
+  backend:
+    build: ./backend
+    container_name: metron_brain
     ports:
-      - "8080:80"
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://metron_user:secretpassword@db:5432/metron_db
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1.5G # ফিক্সড ১.৫ জিবি লিমিট
+
+  # 🎨 Frontend (React/Vite) - ২.৫ জিবি
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile.dev
+    container_name: metron_ui
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./Frontend:/app # লাইভ কোড সিঙ্ক সঠিকভাবে পয়েন্ট করা
+      - /app/node_modules # কন্টেইনারের নিজস্ব মডিউল ফোল্ডার
+    # 👇 এই কমান্ডটি ফাইল চেক করবে এবং লিগ্যাসি মোডে ইন্সটল করবে
+    command: >
+      sh -c " if [ ! -f package.json ]; then echo '⚠️ package.json not found! Check volume mount.'; fi && npm install --legacy-peer-deps && npm run dev -- --host "
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2.5G # ফিক্সড ২.৫ জিবি লিমিট
+
+  # 🗄️ Database (TimescaleDB) - ১.৫ জিবি
+  db:
+    image: timescale/timescaledb:latest-pg14
+    container_name: metron_db
     restart: always
+    environment:
+      - POSTGRES_USER=metron_user
+      - POSTGRES_PASSWORD=secretpassword
+      - POSTGRES_DB=metron_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1.5G # ফিক্সড ১.৫ জিবি লিমিট
+
+volumes:
+  postgres_data:
