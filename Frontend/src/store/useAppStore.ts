@@ -29,6 +29,7 @@ interface AppState {
   closePosition: (id: string) => void;
   closeAllPositions: () => void;
   updatePositionSize: (id: string, newSize: number) => void;
+  updateMetrics: (newMetrics: Partial<AppState['metrics']>) => void;
 
   // Simulation Loop Tick
   tick: (riskConfig: any) => void;
@@ -102,6 +103,9 @@ export const useAppStore = create<AppState>()(
         addLog('INFO', `Position ${id} resized to ${newSize}`);
         if (soundEnabled) playSound('click');
       },
+
+      updateMetrics: (newMetrics) =>
+        set((state) => ({ metrics: { ...state.metrics, ...newMetrics } })),
 
       tick: (riskConfig) => {
         const { status, metrics, positions, addLog, soundEnabled } = get();

@@ -1,9 +1,9 @@
 fastapi
 uvicorn
-psycopg2-binary
-sqlalchemy
-asyncpg
 python-dotenv
-ccxt
-pandas
+pydantic-settings
+ccxt             # Trade execution
+websockets       # Live data streaming
+asyncpg          # Database driver
+pandas           # Calculation
 requests

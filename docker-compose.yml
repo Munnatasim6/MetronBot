@@ -1,55 +1,42 @@
+version: '3.8'
+
 services:
-  # 🧠 Backend (FastAPI) - ১.৫ জিবি
   backend:
-    build: ./backend
-    container_name: metron_brain
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: metron_backend
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
+      - ./Backend:/app # Hot-reload code sync
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=postgresql://metron_user:secretpassword@db:5432/metron_db
-    depends_on:
-      - db
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1.5G # ফিক্সড ১.৫ জিবি লিমিট
+      - WATCHFILES_FORCE_POLLING=true # Windows/Docker hot-reload fix
+    restart: always
 
-  # 🎨 Frontend (React/Vite) - ২.৫ জিবি
   frontend:
     build:
       context: ./Frontend
-      dockerfile: Dockerfile.dev
-    container_name: metron_ui
+      dockerfile: Dockerfile.dev # Development Dockerfile
+    container_name: metron_frontend
     ports:
       - "5173:5173"
     volumes:
-      - ./Frontend:/app # লাইভ কোড সিঙ্ক সঠিকভাবে পয়েন্ট করা
-      - /app/node_modules # কন্টেইনারের নিজস্ব মডিউল ফোল্ডার
-    # 👇 এই কমান্ডটি ফাইল চেক করবে এবং লিগ্যাসি মোডে ইন্সটল করবে
-    command: >
-      sh -c " if [ ! -f package.json ]; then echo '⚠️ package.json not found! Check volume mount.'; fi && npm install --legacy-peer-deps && npm run dev -- --host "
-    environment:
-      - VITE_API_URL=http://localhost:8000
+      - ./Frontend/src:/app/src # Frontend code sync
     depends_on:
       - backend
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 2.5G # ফিক্সড ২.৫ জিবি লিমিট
+    environment:
+      - VITE_API_URL=http://localhost:8000
 
-  # 🗄️ Database (TimescaleDB) - ১.৫ জিবি
+  # Database (TimescaleDB) - Retained from previous config
   db:
     image: timescale/timescaledb:latest-pg14
     container_name: metron_db
     restart: always
-    environment:
-      - POSTGRES_USER=metron_user
-      - POSTGRES_PASSWORD=secretpassword
-      - POSTGRES_DB=metron_db
+    env_file:
+      - .env
     ports:
       - "5432:5432"
     volumes:
@@ -58,7 +45,7 @@ services:
       resources:
         limits:
           cpus: '0.50'
-          memory: 1.5G # ফিক্সড ১.৫ জিবি লিমিট
+          memory: 1.5G
 
 volumes:
   postgres_data:

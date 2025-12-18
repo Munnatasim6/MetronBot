@@ -9,21 +9,35 @@ import { useAppStore } from '../store/useAppStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { SystemStatus } from '../types';
 import { playSound } from '../services/soundService';
+import { socketService } from '../services/api/socketService';
 
 const MainLayout: React.FC = () => {
   const location = useLocation();
   // Store State for Global Effects
-  const { status, soundEnabled, addLog } = useAppStore();
+  const { status, soundEnabled, addLog, updateMetrics } = useAppStore();
   const { riskConfig } = useSettingsStore();
 
   // Simulation Loop (Global)
+  // WebSocket Connection & Live Data
   useEffect(() => {
-    const loopSpeed = status === SystemStatus.STOPPED ? 2000 : 1000;
-    const interval = setInterval(() => {
-      useAppStore.getState().tick(riskConfig);
-    }, loopSpeed);
-    return () => clearInterval(interval);
-  }, [status, riskConfig]);
+    // ১. কানেকশন শুরু
+    socketService.connect();
+
+    // ২. লাইভ ডেটা রিসিভ
+    socketService.subscribe((marketData) => {
+      // Zustand স্টোর আপডেট (Price & Ping)
+      updateMetrics({
+        apiWeight: 100,
+        buyPressure: Math.random() * 100, // আপাতত র‍্যান্ডম, পরে লজিক বসাব
+        ping: Math.floor(Math.random() * 15) + 5,
+      });
+
+      // লগ প্যানেলে লাইভ প্রাইস দেখানো (Test এর জন্য)
+      if (Math.random() > 0.9) {
+        addLog('INFO', `BTC Live: $${marketData.price}`);
+      }
+    });
+  }, []);
 
   // Global Keydown (Kill Switch)
   useEffect(() => {
