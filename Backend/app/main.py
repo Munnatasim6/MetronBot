@@ -1,51 +1,120 @@
 import asyncio
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import ccxt.async_support as ccxt
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.services.stream_engine import market_stream
 
 app = FastAPI(title="Metron Hybrid Brain")
 
-# CORS (Docker environment এ ফ্রন্টএন্ড কানেকশনের জন্য জরুরি)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # প্রোডাকশনে নির্দিষ্ট ডোমেইন দিবে
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# অ্যাপ চালু হওয়ার সাথে সাথে Binance লিসেনার ব্যাকগ্রাউন্ডে স্টার্ট হবে
+# ক্যাশিং
+exchange_cache = {}
+
 @app.on_event("startup")
 async def startup_event():
     loop = asyncio.get_event_loop()
-    loop.create_task(market_stream.listen_to_market())
+    loop.create_task(market_stream.start_engine())
 
 @app.get("/")
 def read_root():
-    return {"status": "active", "system": "Metron Hybrid Bot (Dockerized)"}
+    return {"status": "active", "system": "Metron Hybrid Bot (Full Access)"}
 
-# 🔥 ফ্রন্টএন্ডের জন্য সকেট ব্রিজ
+# ✅ FIX 1: সব এক্সচেঞ্জ লোড করা (আপনার রিকোয়ারমেন্ট অনুযায়ী)
+@app.get("/api/exchanges")
+async def get_exchanges():
+    """CCXT লাইব্রেরির সব সাপোর্টেড এক্সচেঞ্জ রিটার্ন করবে"""
+    # আগে ফিল্টার করা ছিল, এখন সব আনলক করা হলো
+    all_exchanges = ccxt.exchanges
+    return {"exchanges": all_exchanges}
+
+@app.get("/api/markets/{exchange_id}")
+async def get_markets(exchange_id: str):
+    try:
+        if exchange_id in exchange_cache:
+            return {"markets": exchange_cache[exchange_id]}
+
+        if hasattr(ccxt, exchange_id):
+            exchange_class = getattr(ccxt, exchange_id)
+            async with exchange_class() as exchange:
+                # i3 অপ্টিমাইজেশন: লোড কমানোর জন্য শুধু সিম্বলগুলো লোড করছি
+                markets = await exchange.load_markets()
+                symbols = list(markets.keys())
+                exchange_cache[exchange_id] = symbols
+                return {"markets": symbols}
+        else:
+            raise HTTPException(status_code=404, detail="Exchange not found")
+            
+    except Exception as e:
+        print(f"Error fetching markets: {e}")
+        return {"markets": [], "error": str(e)}
+
 @app.websocket("/ws/feed")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("🖥️ Frontend Connected via Docker Network")
+    queue = await market_stream.subscribe()
+    
+    receiver_task = None
     try:
+        # 1. Client Listener Task
+        async def receive_messages():
+            try:
+                while True:
+                    msg = await websocket.receive_text()
+                    data = json.loads(msg)
+                    # Handle Subscription Change
+                    if data.get("type") == "SUBSCRIBE":
+                        exchange = data.get("exchange", "binance")
+                        pair = data.get("pair")
+                        if pair:
+                            await market_stream.change_stream(exchange, pair)
+            except (WebSocketDisconnect, RuntimeError):
+                # Normal Disconnect
+                pass 
+            except Exception as e:
+                print(f"WS Receiver Error: {e}")
+
+        # Start background listener
+        receiver_task = asyncio.create_task(receive_messages())
+
+        # 2. Sender Loop (Main Thread)
         while True:
-            # Binance থেকে পাওয়া লেটেস্ট প্রাইস ফ্রন্টএন্ডে পাঠাই
-            if market_stream.latest_price > 0:
-                payload = {
-                    "type": "TICKER",
-                    "data": {
-                        "pair": "BTC/USDT",
-                        "price": market_stream.latest_price,
-                        "timestamp": asyncio.get_event_loop().time()
-                    }
-                }
-                await websocket.send_text(json.dumps(payload))
+            # Check if receiver is dead (client disconnected)
+            if receiver_task.done():
+                break
+
+            # Wait for data or client disconnect
+            # We use wait_for to periodically check receiver_task status
+            # properly managing the queue get
+            get_task = asyncio.create_task(queue.get())
+            done, pending = await asyncio.wait(
+                [get_task, receiver_task], 
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if receiver_task in done:
+                get_task.cancel()
+                break
             
-            # প্রসেসর বাঁচানোর জন্য সামান্য বিরতি (0.5s)
-            await asyncio.sleep(0.5)
-            
-    except WebSocketDisconnect:
-        print("🔴 Frontend Disconnected")
+            # Data is ready to send
+            data = await get_task
+            try:
+                await websocket.send_text(json.dumps(data))
+            except (WebSocketDisconnect, RuntimeError):
+                # Socket is closed, exit loop
+                break
+
+    except Exception as e:
+        print(f"Global WS Error: {e}")
+    finally:
+        # Cleanup
+        if receiver_task:
+            receiver_task.cancel()
+        await market_stream.unsubscribe(queue)

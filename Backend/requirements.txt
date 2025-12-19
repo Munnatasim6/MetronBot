@@ -1,9 +1,4 @@
 fastapi
 uvicorn
-python-dotenv
-pydantic-settings
-ccxt             # Trade execution
-websockets       # Live data streaming
-asyncpg          # Database driver
-pandas           # Calculation
-requests
+websockets
+ccxt
