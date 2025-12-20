@@ -1,68 +1,61 @@
+// ফাইল: Frontend/src/services/api/socketService.ts
+
 class SocketService {
     private socket: WebSocket | null = null;
     private listeners: ((data: any) => void)[] = [];
-    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    private isExplicitDisconnect = false;
+    private reconnectAttempts = 0;
+    private maxReconnectDelay = 30000; // সর্বোচ্চ ৩০ সেকেন্ড অপেক্ষা করবে
 
-    connect(url: string = 'ws://localhost:8000/ws/feed') {
-        if (this.socket?.readyState === WebSocket.OPEN) return;
+    connect(url = 'ws://localhost:8000/ws/feed') {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) return;
 
-        this.isExplicitDisconnect = false;
         this.socket = new WebSocket(url);
 
         this.socket.onopen = () => {
-            console.log("✅ Stream Connected");
-            if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+            console.log('✅ Socket Connected');
+            this.reconnectAttempts = 0; // কানেক্ট হলে কাউন্টার রিসেট
         };
 
         this.socket.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                // সব মেসেজ লিসেনারদের কাছে পাঠানো হবে, যাতে তারা টাইপ চেক করে কাজ করতে পারে
-                this.listeners.forEach(cb => cb(message));
-            } catch (e) {
-                console.error("Socket message parse error", e);
-            }
+            const data = JSON.parse(event.data);
+            this.listeners.forEach(callback => callback(data));
         };
 
         this.socket.onclose = () => {
-            if (!this.isExplicitDisconnect) {
-                console.log("⚠️ Stream Disconnected. Reconnecting...");
-                this.reconnectTimer = setTimeout(() => this.connect(url), 3000);
-            }
+            console.log('❌ Socket Disconnected');
+            this.retryConnection(url);
         };
 
-        this.socket.onerror = (err) => {
-            console.error("❌ Socket Error:", err);
+        this.socket.onerror = (error) => {
+            console.error('⚠️ Socket Error:', error);
             this.socket?.close();
         };
     }
 
-    send(data: any) {
-        if (this.socket?.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify(data));
-        } else {
-            console.warn("Socket not open, cannot send:", data);
-        }
-    }
+    private retryConnection(url: string) {
+        // রিকানেক্ট লজিক: ৩সে, ৬সে, ১২সে... এভাবে বাড়বে
+        const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts), this.maxReconnectDelay);
 
-    disconnect() {
-        this.isExplicitDisconnect = true;
-        if (this.socket) {
-            this.socket.close();
-            this.socket = null;
-        }
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
+        console.log(`🔄 Reconnecting in ${delay / 1000}s...`);
+
+        setTimeout(() => {
+            this.reconnectAttempts++;
+            this.connect(url);
+        }, delay);
     }
 
     subscribe(callback: (data: any) => void) {
         this.listeners.push(callback);
         return () => {
-            this.listeners = this.listeners.filter(l => l !== callback);
+            this.listeners = this.listeners.filter(cb => cb !== callback);
         };
+    }
+
+    disconnect() {
+        if (this.socket) {
+            this.socket.close();
+            this.socket = null;
+        }
     }
 }
 
