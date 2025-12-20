@@ -11,7 +11,7 @@ from app.services.stream_engine import market_stream
 from app.services.signal_engine import signal_engine
 from app.database import init_db, get_strategy, set_strategy
 
-app = FastAPI(title="Metron Hybrid Brain")
+app = FastAPI(title="Metron Hybrid Brain (Advanced)")
 
 # CORS কনফিগারেশন
 app.add_middleware(
@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 # ============================================================
-# ১. কানেকশন ম্যানেজার (WebSocket)
+# ১. কানেকশন ম্যানেজার (With Auto-Cleaning)
 # ============================================================
 class ConnectionManager:
     def __init__(self):
@@ -38,27 +38,47 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        # সব কানেক্টেড ক্লায়েন্টকে মেসেজ পাঠানো
-        for connection in self.active_connections:
+        # ইম্প্রুভমেন্ট ২: কানেকশন ক্লিনিং
+        # আমরা লিস্টের একটি কপি তৈরি করে লুপ চালাব যাতে রিমুভ করলে এরর না হয়
+        for connection in self.active_connections[:]:
             try:
                 await connection.send_json(message)
-            except Exception as e:
-                print(f"Broadcast Error: {e}")
-                # ডেড কানেকশন রিমুভ করার লজিক এখানে যোগ করা যেতে পারে
+            except Exception:
+                # যদি পাঠাতে ব্যর্থ হয়, ধরে নিব কানেকশন ডেড
+                self.disconnect(connection)
 
 manager = ConnectionManager()
 
 # ============================================================
-# ২. ব্রডকাস্ট ইঞ্জিন (ব্যাকগ্রাউন্ড টাস্ক)
+# ২. ব্রডকাস্ট ইঞ্জিন (With Backoff & Arbitrage)
 # ============================================================
+
+async def fetch_arbitrage_prices(symbol: str):
+    """আরবিট্রেজ প্রাইস ফেচ করার হেল্পার ফাংশন"""
+    exchanges_to_check = ['binance', 'kucoin', 'bybit', 'gateio']
+    
+    async def fetch_price(exchange_id):
+        try:
+            if hasattr(ccxt, exchange_id):
+                exchange_class = getattr(ccxt, exchange_id)
+                async with exchange_class() as exchange:
+                    # Timeout সেট করা জরুরি যাতে লুপ আটকে না থাকে
+                    exchange.timeout = 3000 
+                    ticker = await exchange.fetch_ticker(symbol)
+                    return {"exchange": exchange_id.title(), "price": ticker['last'], "logo": "🟢"}
+        except:
+            return None
+
+    tasks = [fetch_price(ex_id) for ex_id in exchanges_to_check]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
+
 async def broadcast_market_data():
-    """
-    প্রতি ২ সেকেন্ড পর পর মার্কেট ডাটা ফেচ করে সকেটে পুশ করে।
-    এটি Polling এর বিকল্প হিসেবে কাজ করে।
-    """
+    error_count = 0
+    tick_count = 0 # ইম্প্রুভমেন্ট ৪: টাইমিং কন্ট্রোল
+
     while True:
         try:
-            # যদি কোনো ক্লায়েন্ট কানেক্টেড না থাকে, তবে রিসোর্স বাঁচানোর জন্য অপেক্ষা করবে
             if not manager.active_connections:
                 await asyncio.sleep(3)
                 continue
@@ -66,58 +86,51 @@ async def broadcast_market_data():
             async with ccxt.binance() as exchange:
                 symbol = "BTC/USDT"
                 
-                # ১. সেন্টিমেন্ট ডাটা ক্যালকুলেশন
+                # --- ১. সেন্টিমেন্ট (প্রতি ২ সেকেন্ডে) ---
                 ohlcv = await exchange.fetch_ohlcv(symbol, '1h', limit=100)
                 if ohlcv:
                     sentiment_result = signal_engine.analyze_market_sentiment(ohlcv)
                     sentiment_result["symbol"] = symbol
-                    
-                    # ক্লায়েন্টকে পাঠানো
-                    await manager.broadcast({
-                        "type": "SENTIMENT",
-                        "payload": sentiment_result
-                    })
+                    await manager.broadcast({"type": "SENTIMENT", "payload": sentiment_result})
 
-                # ২. রিসেন্ট ট্রেড ডাটা
+                # --- ২. ট্রেড (প্রতি ২ সেকেন্ডে) ---
                 trades = await exchange.fetch_trades(symbol, limit=15)
-                formatted_trades = []
-                for t in trades:
-                    formatted_trades.append({
-                        "id": t['id'],
-                        "price": t['price'],
-                        "amount": t['amount'],
-                        "side": t['side'],
-                        "time": t['datetime'].split('T')[1][:8]
-                    })
+                formatted_trades = [{
+                    "id": t['id'], "price": t['price'], "amount": t['amount'], 
+                    "side": t['side'], "time": t['datetime'].split('T')[1][:8]
+                } for t in trades]
                 
-                await manager.broadcast({
-                    "type": "TRADES",
-                    "payload": formatted_trades
-                })
+                await manager.broadcast({"type": "TRADES", "payload": formatted_trades})
 
-            # ২ সেকেন্ড বিরতি (i3 এর জন্য অপ্টিমাইজড)
+                # --- ৩. আরবিট্রেজ (ইম্প্রুভমেন্ট ৪: প্রতি ১০ সেকেন্ডে) ---
+                # i3 প্রসেসরে চাপ কমাতে আমরা এটি প্রতি ৫ লুপে (approx 10s) একবার চালাব
+                if tick_count % 5 == 0:
+                    arb_data = await fetch_arbitrage_prices(symbol)
+                    if arb_data:
+                        await manager.broadcast({"type": "ARBITRAGE", "payload": arb_data})
+
+            # সফল হলে এরর কাউন্ট রিসেট
+            error_count = 0 
+            tick_count += 1
             await asyncio.sleep(2)
 
         except Exception as e:
-            print(f"Broadcast Engine Error: {e}")
-            await asyncio.sleep(5) # এরর হলে ৫ সেকেন্ড ব্রেক
+            # ইম্প্রুভমেন্ট ১: Exponential Backoff Error Handling
+            error_count += 1
+            # ২, ৫, ১০, ২০... সর্বোচ্চ ৩০ সেকেন্ড পর্যন্ত অপেক্ষা করবে
+            sleep_time = min(30, 2 * error_count) 
+            print(f"⚠️ Broadcast Error (Retry in {sleep_time}s): {e}")
+            await asyncio.sleep(sleep_time)
 
 # ============================================================
-# ৩. সিস্টেম স্টার্টআপ ইভেন্ট
+# ৩. সিস্টেম ইভেন্টস ও API
 # ============================================================
 @app.on_event("startup")
 async def startup_event():
-    # ডাটাবেস ইনিশিয়ালাইজেশন
     init_db()
-    
-    # ব্যাকগ্রাউন্ড টাস্ক শুরু
     loop = asyncio.get_event_loop()
-    loop.create_task(market_stream.start_engine()) # আগের স্ট্রিম ইঞ্জিন
-    loop.create_task(broadcast_market_data())      # নতুন সকেট ব্রডকাস্টার
-
-# ============================================================
-# ৪. API এন্ডপয়েন্টস (HTTP)
-# ============================================================
+    loop.create_task(market_stream.start_engine())
+    loop.create_task(broadcast_market_data())
 
 class StrategyRequest(BaseModel):
     strategy: str
@@ -131,56 +144,17 @@ async def set_bot_strategy(req: StrategyRequest):
     set_strategy(req.strategy)
     return {"status": "success", "message": f"Strategy switched to {req.strategy}"}
 
-@app.get("/api/sentiment")
-async def get_sentiment(symbol: str = Query("BTC/USDT"), timeframe: str = "1h"):
-    # ম্যানুয়াল রিফ্রেশ বা প্রথম লোডের জন্য
-    try:
-        async with ccxt.binance() as exchange:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
-            if not ohlcv: raise HTTPException(status_code=404)
-            result = signal_engine.analyze_market_sentiment(ohlcv)
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ফলব্যাক API (যদি সকেট কানেক্ট না হয়)
 @app.get("/api/arbitrage")
 async def get_arbitrage(symbol: str = Query("BTC/USDT")):
-    # আরবিট্রেজ আমরা এখনো সকেটে দেইনি, তাই এটি API তেই থাকছে
-    exchanges_to_check = ['binance', 'kucoin', 'bybit', 'gateio']
-    async def fetch_price(exchange_id, sym):
-        try:
-            if hasattr(ccxt, exchange_id):
-                exchange_class = getattr(ccxt, exchange_id)
-                async with exchange_class() as exchange:
-                    ticker = await exchange.fetch_ticker(sym)
-                    return {"exchange": exchange_id.title(), "price": ticker['last'], "logo": "🟢"}
-        except: return None
+    data = await fetch_arbitrage_prices(symbol)
+    return {"data": data}
 
-    tasks = [fetch_price(ex_id, symbol) for ex_id in exchanges_to_check]
-    prices = await asyncio.gather(*tasks)
-    return {"data": [p for p in prices if p]}
-
-@app.get("/api/trades")
-async def get_recent_trades_api(symbol: str = "BTC/USDT"):
-    # ফলব্যাক API
-    async with ccxt.binance() as exchange:
-        trades = await exchange.fetch_trades(symbol, limit=15)
-        return trades
-
-# ============================================================
-# ৫. ওয়েব সকেট এন্ডপয়েন্ট (Updated)
-# ============================================================
 @app.websocket("/ws/feed")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # ক্লায়েন্ট থেকে কোনো মেসেজ আসলে তা রিসিভ করা (যদি দরকার হয়)
-            # বর্তমানে আমরা শুধু পুশ করছি, তাই এখানে লুপটি কানেকশন ধরে রাখবে
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception as e:
-        print(f"WS Error: {e}")
-        manager.disconnect(websocket)
-

@@ -1,28 +1,48 @@
 import React, { useEffect, useState } from 'react';
-// কম্পোনেন্ট ইম্পোর্ট
 import SentimentWidget from './Widgets/SentimentWidget';
 import RecentTrades from './Widgets/RecentTrades';
 import ArbitrageMonitor from './Widgets/ArbitrageMonitor';
 import TradingChart from './Widgets/TradingChart';
 import OrderBook from './Widgets/OrderBook';
-
-// সার্ভিস ইম্পোর্ট (Step 3)
 import { socketService } from '../services/api/socketService';
 
+// ইম্প্রুভমেন্ট ৩: Type Definitions (Interface)
+interface SentimentData {
+    verdict: string;
+    score: number;
+    symbol: string;
+    signal?: string;
+    confidence?: number;
+}
+
+interface Trade {
+    id: string;
+    price: number;
+    amount: number;
+    side: 'buy' | 'sell';
+    time: string;
+}
+
+interface ArbitrageData {
+    exchange: string;
+    price: number;
+    logo: string;
+}
+
 const Dashboard = () => {
-    // স্টেট ভেরিয়েবল
-    const [sentimentData, setSentimentData] = useState<any>(null);
-    const [arbitrageData, setArbitrageData] = useState<any[]>([]);
-    const [recentTradesData, setRecentTradesData] = useState<any[]>([]);
+    // Type Safe States
+    const [sentimentData, setSentimentData] = useState<SentimentData | null>(null);
+    const [arbitrageData, setArbitrageData] = useState<ArbitrageData[]>([]);
+    const [recentTradesData, setRecentTradesData] = useState<Trade[]>([]);
     const [currentStrategy, setCurrentStrategy] = useState<string>("Loading...");
 
-    // কানেকশন স্ট্যাটাস
     const [socketStatus, setSocketStatus] = useState<string>("Connecting...");
     const [isLoading, setIsLoading] = useState(true);
 
-    // ১. ইনিশিয়াল ডাটা লোড (HTTP) - পেজ লোড হওয়ার সাথে সাথে একবার কল হবে
+    // Initial Fetch (শুধুমাত্র পেজ লোডের সময় একবার)
     const fetchInitialData = async () => {
         try {
+            // স্ট্র্যাটেজি এবং ইনিশিয়াল আরবিট্রেজ স্ন্যাপশট
             const [strategyRes, arbitrageRes] = await Promise.all([
                 fetch('http://localhost:8000/api/strategy'),
                 fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT')
@@ -32,7 +52,6 @@ const Dashboard = () => {
                 const sData = await strategyRes.json();
                 setCurrentStrategy(sData.strategy.toUpperCase());
             }
-
             if (arbitrageRes.ok) {
                 const aData = await arbitrageRes.json();
                 setArbitrageData(aData.data);
@@ -44,31 +63,28 @@ const Dashboard = () => {
         }
     };
 
-    // ২. ওয়েব সকেট ইন্টিগ্রেশন (Real-time Data)
     useEffect(() => {
-        // প্রথমে একবার রেস্ট API কল
         fetchInitialData();
-
-        // সকেট কানেকশন শুরু
         socketService.connect();
         setSocketStatus("Live Socket 🟢");
 
-        // ডাটা লিসেনার সাবস্ক্রাইব করা
-        const unsubscribe = socketService.subscribe((data) => {
-
-            // সেন্টিমেন্ট আপডেট
+        const unsubscribe = socketService.subscribe((data: any) => {
+            // ১. সেন্টিমেন্ট আপডেট
             if (data.type === 'SENTIMENT') {
-                setSentimentData(data.payload);
+                setSentimentData(data.payload as SentimentData);
             }
 
-            // ট্রেড আপডেট
+            // ২. ট্রেড আপডেট
             if (data.type === 'TRADES') {
-                // আমরা সার্ভার থেকে পুরো লিস্ট পাচ্ছি, তাই স্টেট রিপ্লেস করছি
-                setRecentTradesData(data.payload);
+                setRecentTradesData(data.payload as Trade[]);
+            }
+
+            // ৩. আরবিট্রেজ আপডেট (ইম্প্রুভমেন্ট ৪: সকেট থেকে রিসিভ)
+            if (data.type === 'ARBITRAGE') {
+                setArbitrageData(data.payload as ArbitrageData[]);
             }
         });
 
-        // ক্লিনআপ (কম্পোনেন্ট বন্ধ হলে ডিসকানেক্ট হবে)
         return () => {
             unsubscribe();
             socketService.disconnect();
@@ -76,29 +92,13 @@ const Dashboard = () => {
         };
     }, []);
 
-    // ৩. আরবিট্রেজ এর জন্য আলাদা পোলিং (কারণ এটি সকেটে নেই)
-    useEffect(() => {
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT');
-                if (res.ok) {
-                    const data = await res.json();
-                    setArbitrageData(data.data);
-                }
-            } catch (e) {
-                console.error("Arbitrage Poll Error", e);
-            }
-        }, 5000); // প্রতি ৫ সেকেন্ডে চেক করবে (ধীরগতিতে, কারণ সকেট মেইন কাজ করছে)
-
-        return () => clearInterval(interval);
-    }, []);
+    // নোট: আমরা setInterval পোলিং রিমুভ করে দিয়েছি কারণ এখন সকেটেই সব ডাটা আসছে।
 
     return (
         <div style={{ padding: '20px', background: '#131722', minHeight: '100vh', fontFamily: 'Arial, sans-serif' }}>
-
-            {/* হেডার এবং স্ট্যাটাস */}
+            {/* Header */}
             <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 style={{ color: '#d1d4dc', margin: 0, fontSize: '18px' }}>🚀 Metron Hybrid Dashboard</h2>
+                <h2 style={{ color: '#d1d4dc', margin: 0, fontSize: '18px' }}>🚀 Metron Hybrid Dashboard (Pro)</h2>
                 <div style={{ fontSize: '11px', fontWeight: 'bold' }}>
                     {isLoading ? (
                         <span style={{ color: '#ffb300' }}>● Initializing...</span>
@@ -108,15 +108,11 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* টপ সেকশন: মেইন চার্ট এবং সাইড প্যানেল */}
+            {/* Main Layout */}
             <div style={{ display: 'grid', gridTemplateColumns: '75% 24%', gap: '1%', marginBottom: '20px' }}>
-
-                {/* বামে: চার্ট এরিয়া */}
                 <div style={{ height: '500px' }}>
                     <TradingChart symbol="BTCUSDT" />
                 </div>
-
-                {/* ডানে: অর্ডার বুক এবং ট্রেড হিস্ট্রি */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '500px' }}>
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                         <OrderBook />
@@ -127,28 +123,23 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* বটম সেকশন: অ্যানালাইসিস উইজেট */}
+            {/* Analysis Widgets */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-
-                {/* ১. সেন্টিমেন্ট উইজেট (সকেট থেকে লাইভ ডাটা) */}
                 <SentimentWidget data={sentimentData} />
 
-                {/* ২. আরবিট্রেজ মনিটর (৫ সেকেন্ড পোলিং) */}
+                {/* সকেট থেকে পাওয়া আরবিট্রেজ ডাটা */}
                 <ArbitrageMonitor data={arbitrageData} />
 
-                {/* ৩. সিস্টেম ইনফো প্যানেল */}
+                {/* System Info */}
                 <div style={{ background: '#1e222d', borderRadius: '8px', padding: '15px', border: '1px solid #2a2e39', color: '#787b86', fontSize: '12px' }}>
                     <h4 style={{ color: '#d1d4dc', marginBottom: '10px' }}>System Health</h4>
-                    <p style={{ margin: '5px 0' }}>Core Engine: <span style={{ color: '#00c853' }}>Python Signal Engine</span></p>
-                    <p style={{ margin: '5px 0' }}>Connection: <span style={{ color: '#2962ff' }}>WebSocket (Real-time)</span></p>
-                    {/* ডায়নামিক স্ট্র্যাটেজি ডিসপ্লে */}
+                    <p style={{ margin: '5px 0' }}>Core: <span style={{ color: '#00c853' }}>Python Async Engine</span></p>
+                    <p style={{ margin: '5px 0' }}>Arb Rate: <span style={{ color: '#2962ff' }}>~10s (Optimized)</span></p>
                     <p style={{ margin: '5px 0' }}>Strategy: <span style={{ color: '#ffb300', fontWeight: 'bold' }}>{currentStrategy}</span></p>
-
                     <div style={{ marginTop: '10px', padding: '8px', background: '#2a2e39', borderRadius: '4px', borderLeft: '3px solid #00e676' }}>
-                        Optimization: <strong>Active (i3 Compatible)</strong>
+                        Status: <strong>Fully Real-time & Type Safe</strong>
                     </div>
                 </div>
-
             </div>
         </div>
     );
