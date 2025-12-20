@@ -125,6 +125,35 @@ async def get_arbitrage(symbol: str = Query("BTC/USDT", description="Symbol to c
     return {"data": valid_prices}
 
 # ============================================================
+# ৪. রিসেন্ট ট্রেড API (Recent Trades)
+# ============================================================
+
+@app.get("/api/trades")
+async def get_recent_trades(symbol: str = "BTC/USDT"):
+    """
+    Binance থেকে লেটেস্ট ট্রেড ডাটা ফেচ করে।
+    """
+    try:
+        async with ccxt.binance() as exchange:
+            trades = await exchange.fetch_trades(symbol, limit=15) # i3 এর জন্য লিমিট ১৫
+            
+            # ডাটা ফরম্যাটিং
+            formatted_trades = []
+            for t in trades:
+                formatted_trades.append({
+                    "id": t['id'],
+                    "price": t['price'],
+                    "amount": t['amount'],
+                    "side": t['side'],
+                    "time": t['datetime'].split('T')[1][:8] # শুধু সময়টুকু (HH:MM:SS)
+                })
+            
+            return formatted_trades
+    except Exception as e:
+        print(f"Trade Fetch Error: {e}")
+        return []
+
+# ============================================================
 # ৪. ওয়েবসকেট (WebSocket) - অপরিবর্তিত
 # ============================================================
 

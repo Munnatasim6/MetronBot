@@ -10,6 +10,7 @@ const Dashboard = () => {
     // স্টেট ভেরিয়েবল
     const [sentimentData, setSentimentData] = useState<any>(null);
     const [arbitrageData, setArbitrageData] = useState<any[]>([]);
+    const [recentTradesData, setRecentTradesData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isFetching, setIsFetching] = useState(false); // সেফটি লক
 
@@ -20,10 +21,11 @@ const Dashboard = () => {
 
         setIsFetching(true); // লক করা হলো
         try {
-            // প্যারালাল রিকোয়েস্ট (একই সাথে দুইটা API কল)
-            const [sentimentRes, arbitrageRes] = await Promise.all([
+            // প্যারালাল রিকোয়েস্ট (একই সাথে তিনটা API কল)
+            const [sentimentRes, arbitrageRes, tradesRes] = await Promise.all([
                 fetch('http://localhost:8000/api/sentiment?symbol=BTC/USDT'),
-                fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT')
+                fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT'),
+                fetch('http://localhost:8000/api/trades?symbol=BTC/USDT')
             ]);
 
             if (sentimentRes.ok) {
@@ -34,6 +36,11 @@ const Dashboard = () => {
             if (arbitrageRes.ok) {
                 const aData = await arbitrageRes.json();
                 setArbitrageData(aData.data);
+            }
+
+            if (tradesRes.ok) {
+                const tData = await tradesRes.json();
+                setRecentTradesData(tData);
             }
 
             setIsLoading(false);
@@ -86,7 +93,7 @@ const Dashboard = () => {
                     </div>
                     {/* ✅ ফিক্স: ট্রেড হিস্ট্রি নিচে */}
                     <div style={{ flex: 1, overflow: 'hidden' }}>
-                        <RecentTrades />
+                        <RecentTrades data={recentTradesData} />
                     </div>
                 </div>
             </div>
