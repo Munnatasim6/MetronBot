@@ -66,7 +66,8 @@ async def fetch_arbitrage_prices(symbol: str):
                     exchange.timeout = 3000 
                     ticker = await exchange.fetch_ticker(symbol)
                     return {"exchange": exchange_id.title(), "price": ticker['last'], "logo": "🟢"}
-        except:
+        except Exception:
+            # কোনো এক্সচেঞ্জ এরর দিলে আমরা চুপচাপ None রিটার্ন করব (সিস্টেম ক্র্যাশ করবে না)
             return None
 
     tasks = [fetch_price(ex_id) for ex_id in exchanges_to_check]
