@@ -2,3 +2,6 @@ fastapi
 uvicorn
 websockets
 ccxt
+pandas
+pandas_ta
+numpy

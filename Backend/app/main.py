@@ -1,12 +1,15 @@
 import asyncio
 import json
 import ccxt.async_support as ccxt
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from app.services.stream_engine import market_stream
+# আমাদের সিগন্যাল ইঞ্জিন ইম্পোর্ট (নিশ্চিত করুন signal_engine.py ফাইলটি services ফোল্ডারে আছে)
+from app.services.signal_engine import signal_engine
 
 app = FastAPI(title="Metron Hybrid Brain")
 
+# CORS কনফিগারেশন (ফ্রন্টএন্ড কানেকশনের জন্য জরুরি)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,11 +18,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ক্যাশিং
+# ক্যাশিং মেকানিজম
 exchange_cache = {}
 
 @app.on_event("startup")
 async def startup_event():
+    # ব্যাকগ্রাউন্ড সকেট ইঞ্জিন চালু
     loop = asyncio.get_event_loop()
     loop.create_task(market_stream.start_engine())
 
@@ -27,13 +31,13 @@ async def startup_event():
 def read_root():
     return {"status": "active", "system": "Metron Hybrid Bot (Full Access)"}
 
-# ✅ FIX 1: সব এক্সচেঞ্জ লোড করা (আপনার রিকোয়ারমেন্ট অনুযায়ী)
+# ============================================================
+# ১. এক্সচেঞ্জ ডাটা (Exchanges)
+# ============================================================
+
 @app.get("/api/exchanges")
 async def get_exchanges():
-    """CCXT লাইব্রেরির সব সাপোর্টেড এক্সচেঞ্জ রিটার্ন করবে"""
-    # আগে ফিল্টার করা ছিল, এখন সব আনলক করা হলো
-    all_exchanges = ccxt.exchanges
-    return {"exchanges": all_exchanges}
+    return {"exchanges": ccxt.exchanges}
 
 @app.get("/api/markets/{exchange_id}")
 async def get_markets(exchange_id: str):
@@ -44,17 +48,85 @@ async def get_markets(exchange_id: str):
         if hasattr(ccxt, exchange_id):
             exchange_class = getattr(ccxt, exchange_id)
             async with exchange_class() as exchange:
-                # i3 অপ্টিমাইজেশন: লোড কমানোর জন্য শুধু সিম্বলগুলো লোড করছি
                 markets = await exchange.load_markets()
                 symbols = list(markets.keys())
                 exchange_cache[exchange_id] = symbols
                 return {"markets": symbols}
         else:
             raise HTTPException(status_code=404, detail="Exchange not found")
-            
     except Exception as e:
-        print(f"Error fetching markets: {e}")
         return {"markets": [], "error": str(e)}
+
+# ============================================================
+# ২. সেন্টিমেন্ট অ্যানালাইসিস API (Signal Engine)
+# ============================================================
+
+@app.get("/api/sentiment")
+async def get_sentiment(symbol: str = Query("BTC/USDT", description="Trading Pair"), timeframe: str = "1h"):
+    """
+    ফ্রন্টএন্ড থেকে প্রতি ২ সেকেন্ড পর পর এটি কল হবে।
+    এটি Binance থেকে লাইভ ডাটা নিয়ে ২০টি ইন্ডিকেটর ক্যালকুলেট করে রেজাল্ট দিবে।
+    """
+    try:
+        async with ccxt.binance() as exchange:
+            # i3 অপ্টিমাইজেশন: ক্যালকুলেশনের জন্য শেষ ১০০টি ক্যান্ডেলই যথেষ্ট
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+            
+            if not ohlcv:
+                raise HTTPException(status_code=404, detail="No market data found")
+
+            # সিগন্যাল ইঞ্জিনে ডাটা পাঠানো
+            analysis_result = signal_engine.analyze_market_sentiment(ohlcv)
+            
+            # মেটাডাটা যোগ করা
+            analysis_result["symbol"] = symbol
+            analysis_result["timeframe"] = timeframe
+            
+            return analysis_result
+
+    except Exception as e:
+        print(f"Sentiment Analysis Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================
+# ৩. আরবিট্রেজ মনিটর API (Arbitrage)
+# ============================================================
+
+@app.get("/api/arbitrage")
+async def get_arbitrage(symbol: str = Query("BTC/USDT", description="Symbol to compare")):
+    """
+    প্যারালাল রিকোয়েস্টের মাধ্যমে ৪টি এক্সচেঞ্জের লাইভ প্রাইস চেক করে।
+    """
+    exchanges_to_check = ['binance', 'kucoin', 'bybit', 'gateio']
+
+    async def fetch_price(exchange_id, sym):
+        try:
+            if hasattr(ccxt, exchange_id):
+                exchange_class = getattr(ccxt, exchange_id)
+                async with exchange_class() as exchange:
+                    ticker = await exchange.fetch_ticker(sym)
+                    return {
+                        "exchange": exchange_id.title(),
+                        "price": ticker['last'],
+                        "logo": "🟢" 
+                    }
+        except Exception:
+            return None # কোনো এক্সচেঞ্জ রেসপন্স না করলে স্কিপ করবে
+
+    # প্যারালাল প্রসেসিং (দ্রুত রেসপন্সের জন্য)
+    tasks = [fetch_price(ex_id, symbol) for ex_id in exchanges_to_check]
+    prices = await asyncio.gather(*tasks)
+    
+    valid_prices = [p for p in prices if p is not None]
+    
+    if not valid_prices:
+        raise HTTPException(status_code=503, detail="Could not fetch prices")
+
+    return {"data": valid_prices}
+
+# ============================================================
+# ৪. ওয়েবসকেট (WebSocket) - অপরিবর্তিত
+# ============================================================
 
 @app.websocket("/ws/feed")
 async def websocket_endpoint(websocket: WebSocket):
@@ -63,36 +135,27 @@ async def websocket_endpoint(websocket: WebSocket):
     
     receiver_task = None
     try:
-        # 1. Client Listener Task
         async def receive_messages():
             try:
                 while True:
                     msg = await websocket.receive_text()
                     data = json.loads(msg)
-                    # Handle Subscription Change
                     if data.get("type") == "SUBSCRIBE":
                         exchange = data.get("exchange", "binance")
                         pair = data.get("pair")
                         if pair:
                             await market_stream.change_stream(exchange, pair)
             except (WebSocketDisconnect, RuntimeError):
-                # Normal Disconnect
                 pass 
             except Exception as e:
                 print(f"WS Receiver Error: {e}")
 
-        # Start background listener
         receiver_task = asyncio.create_task(receive_messages())
 
-        # 2. Sender Loop (Main Thread)
         while True:
-            # Check if receiver is dead (client disconnected)
             if receiver_task.done():
                 break
 
-            # Wait for data or client disconnect
-            # We use wait_for to periodically check receiver_task status
-            # properly managing the queue get
             get_task = asyncio.create_task(queue.get())
             done, pending = await asyncio.wait(
                 [get_task, receiver_task], 
@@ -103,18 +166,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 get_task.cancel()
                 break
             
-            # Data is ready to send
             data = await get_task
             try:
                 await websocket.send_text(json.dumps(data))
             except (WebSocketDisconnect, RuntimeError):
-                # Socket is closed, exit loop
                 break
 
     except Exception as e:
         print(f"Global WS Error: {e}")
     finally:
-        # Cleanup
         if receiver_task:
             receiver_task.cancel()
         await market_stream.unsubscribe(queue)

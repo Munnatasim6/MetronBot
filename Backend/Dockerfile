@@ -1,5 +1,5 @@
-# Python 3.10 Slim ব্যবহার করছি (হালকা এবং ফাস্ট)
-FROM python:3.10-slim
+# Python 3.12 Slim ব্যবহার করছি (pandas_ta এর জন্য প্রয়োজন)
+FROM python:3.12-slim
 
 WORKDIR /app
 
