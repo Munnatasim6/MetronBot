@@ -3,6 +3,7 @@ import json
 import ccxt.async_support as ccxt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from app.services.stream_engine import market_stream
 # আমাদের সিগন্যাল ইঞ্জিন ইম্পোর্ট (নিশ্চিত করুন signal_engine.py ফাইলটি services ফোল্ডারে আছে)
 from app.services.signal_engine import signal_engine
@@ -17,6 +18,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# গ্লোবাল ভেরিয়েবল (মেমোরিতে স্ট্র্যাটেজি রাখার জন্য)
+current_bot_strategy = "conservative"
+
+# ডাটা মডেল তৈরি
+class StrategyRequest(BaseModel):
+    strategy: str
 
 # ক্যাশিং মেকানিজম
 exchange_cache = {}
@@ -207,3 +215,19 @@ async def websocket_endpoint(websocket: WebSocket):
         if receiver_task:
             receiver_task.cancel()
         await market_stream.unsubscribe(queue)
+
+@app.post("/api/strategy")
+async def set_strategy(req: StrategyRequest):
+    """
+    ফ্রন্টএন্ড থেকে স্ট্র্যাটেজি মোড রিসিভ করে আপডেট করে।
+    """
+    global current_bot_strategy
+    current_bot_strategy = req.strategy
+    
+    print(f"✅ Bot Strategy Updated to: {current_bot_strategy.upper()}")
+    
+    return {
+        "status": "success", 
+        "message": f"Strategy switched to {current_bot_strategy}",
+        "current_mode": current_bot_strategy
+    }

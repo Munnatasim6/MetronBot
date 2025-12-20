@@ -43,11 +43,10 @@ const Dashboard = () => {
                 setRecentTradesData(tData);
             }
 
-            setIsLoading(false);
-
         } catch (error) {
             console.error("Failed to fetch market data:", error);
         } finally {
+            setIsLoading(false); // ✅ ফিক্স: এরর হলেও লোডিং বন্ধ হবে
             setIsFetching(false); // কাজ শেষ, আনলক করা হলো
         }
     };
