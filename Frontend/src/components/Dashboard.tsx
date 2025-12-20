@@ -4,59 +4,91 @@ import SentimentWidget from './Widgets/SentimentWidget';
 import RecentTrades from './Widgets/RecentTrades';
 import ArbitrageMonitor from './Widgets/ArbitrageMonitor';
 import TradingChart from './Widgets/TradingChart';
-import OrderBook from './Widgets/OrderBook'; // ✅ মিসিং ফাইল ইম্পোর্ট করা হলো
+import OrderBook from './Widgets/OrderBook';
+
+// সার্ভিস ইম্পোর্ট (Step 3)
+import { socketService } from '../services/api/socketService';
 
 const Dashboard = () => {
     // স্টেট ভেরিয়েবল
     const [sentimentData, setSentimentData] = useState<any>(null);
     const [arbitrageData, setArbitrageData] = useState<any[]>([]);
     const [recentTradesData, setRecentTradesData] = useState<any[]>([]);
+    const [currentStrategy, setCurrentStrategy] = useState<string>("Loading...");
+
+    // কানেকশন স্ট্যাটাস
+    const [socketStatus, setSocketStatus] = useState<string>("Connecting...");
     const [isLoading, setIsLoading] = useState(true);
-    const [isFetching, setIsFetching] = useState(false); // সেফটি লক
 
-    // ১. ডাটা ফেচিং ফাংশন (সেফটি লক সহ)
-    const fetchMarketData = async () => {
-        // যদি আগের রিকোয়েস্ট শেষ না হয়, তবে নতুন করে পাঠাবে না
-        if (isFetching) return;
-
-        setIsFetching(true); // লক করা হলো
+    // ১. ইনিশিয়াল ডাটা লোড (HTTP) - পেজ লোড হওয়ার সাথে সাথে একবার কল হবে
+    const fetchInitialData = async () => {
         try {
-            // প্যারালাল রিকোয়েস্ট (একই সাথে তিনটা API কল)
-            const [sentimentRes, arbitrageRes, tradesRes] = await Promise.all([
-                fetch('http://localhost:8000/api/sentiment?symbol=BTC/USDT'),
-                fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT'),
-                fetch('http://localhost:8000/api/trades?symbol=BTC/USDT')
+            const [strategyRes, arbitrageRes] = await Promise.all([
+                fetch('http://localhost:8000/api/strategy'),
+                fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT')
             ]);
 
-            if (sentimentRes.ok) {
-                const sData = await sentimentRes.json();
-                setSentimentData(sData);
+            if (strategyRes.ok) {
+                const sData = await strategyRes.json();
+                setCurrentStrategy(sData.strategy.toUpperCase());
             }
 
             if (arbitrageRes.ok) {
                 const aData = await arbitrageRes.json();
                 setArbitrageData(aData.data);
             }
-
-            if (tradesRes.ok) {
-                const tData = await tradesRes.json();
-                setRecentTradesData(tData);
-            }
-
         } catch (error) {
-            console.error("Failed to fetch market data:", error);
+            console.error("Initial Fetch Error:", error);
         } finally {
-            setIsLoading(false); // ✅ ফিক্স: এরর হলেও লোডিং বন্ধ হবে
-            setIsFetching(false); // কাজ শেষ, আনলক করা হলো
+            setIsLoading(false);
         }
     };
 
-    // ২. ইফেক্ট হুক (টাইমার সেটআপ - ২ সেকেন্ড)
+    // ২. ওয়েব সকেট ইন্টিগ্রেশন (Real-time Data)
     useEffect(() => {
-        fetchMarketData();
+        // প্রথমে একবার রেস্ট API কল
+        fetchInitialData();
 
-        // ⚠️ নিরাপদ টাইমার: ২০০০ms = ২ সেকেন্ড (i3 অপ্টিমাইজড)
-        const interval = setInterval(fetchMarketData, 2000);
+        // সকেট কানেকশন শুরু
+        socketService.connect();
+        setSocketStatus("Live Socket 🟢");
+
+        // ডাটা লিসেনার সাবস্ক্রাইব করা
+        const unsubscribe = socketService.subscribe((data) => {
+
+            // সেন্টিমেন্ট আপডেট
+            if (data.type === 'SENTIMENT') {
+                setSentimentData(data.payload);
+            }
+
+            // ট্রেড আপডেট
+            if (data.type === 'TRADES') {
+                // আমরা সার্ভার থেকে পুরো লিস্ট পাচ্ছি, তাই স্টেট রিপ্লেস করছি
+                setRecentTradesData(data.payload);
+            }
+        });
+
+        // ক্লিনআপ (কম্পোনেন্ট বন্ধ হলে ডিসকানেক্ট হবে)
+        return () => {
+            unsubscribe();
+            socketService.disconnect();
+            setSocketStatus("Disconnected 🔴");
+        };
+    }, []);
+
+    // ৩. আরবিট্রেজ এর জন্য আলাদা পোলিং (কারণ এটি সকেটে নেই)
+    useEffect(() => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('http://localhost:8000/api/arbitrage?symbol=BTC/USDT');
+                if (res.ok) {
+                    const data = await res.json();
+                    setArbitrageData(data.data);
+                }
+            } catch (e) {
+                console.error("Arbitrage Poll Error", e);
+            }
+        }, 5000); // প্রতি ৫ সেকেন্ডে চেক করবে (ধীরগতিতে, কারণ সকেট মেইন কাজ করছে)
 
         return () => clearInterval(interval);
     }, []);
@@ -69,9 +101,9 @@ const Dashboard = () => {
                 <h2 style={{ color: '#d1d4dc', margin: 0, fontSize: '18px' }}>🚀 Metron Hybrid Dashboard</h2>
                 <div style={{ fontSize: '11px', fontWeight: 'bold' }}>
                     {isLoading ? (
-                        <span style={{ color: '#ffb300' }}>● Syncing Data...</span>
+                        <span style={{ color: '#ffb300' }}>● Initializing...</span>
                     ) : (
-                        <span style={{ color: '#00c853' }}>● System Online (2s Pulse)</span>
+                        <span style={{ color: '#00c853' }}>● {socketStatus}</span>
                     )}
                 </div>
             </div>
@@ -84,13 +116,11 @@ const Dashboard = () => {
                     <TradingChart symbol="BTCUSDT" />
                 </div>
 
-                {/* ডানে: অর্ডার বুক এবং ট্রেড হিস্ট্রি (Stacked) */}
+                {/* ডানে: অর্ডার বুক এবং ট্রেড হিস্ট্রি */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '500px' }}>
-                    {/* ✅ ফিক্স: অর্ডার বুক উপরে */}
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                         <OrderBook />
                     </div>
-                    {/* ✅ ফিক্স: ট্রেড হিস্ট্রি নিচে */}
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                         <RecentTrades data={recentTradesData} />
                     </div>
@@ -100,18 +130,19 @@ const Dashboard = () => {
             {/* বটম সেকশন: অ্যানালাইসিস উইজেট */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
 
-                {/* ১. সেন্টিমেন্ট উইজেট (২০টি ইন্ডিকেটর - লাইভ ডাটা) */}
+                {/* ১. সেন্টিমেন্ট উইজেট (সকেট থেকে লাইভ ডাটা) */}
                 <SentimentWidget data={sentimentData} />
 
-                {/* ২. আরবিট্রেজ মনিটর (লাইভ ডাটা) */}
+                {/* ২. আরবিট্রেজ মনিটর (৫ সেকেন্ড পোলিং) */}
                 <ArbitrageMonitor data={arbitrageData} />
 
                 {/* ৩. সিস্টেম ইনফো প্যানেল */}
                 <div style={{ background: '#1e222d', borderRadius: '8px', padding: '15px', border: '1px solid #2a2e39', color: '#787b86', fontSize: '12px' }}>
                     <h4 style={{ color: '#d1d4dc', marginBottom: '10px' }}>System Health</h4>
                     <p style={{ margin: '5px 0' }}>Core Engine: <span style={{ color: '#00c853' }}>Python Signal Engine</span></p>
-                    <p style={{ margin: '5px 0' }}>Update Rate: <span style={{ color: '#2962ff' }}>2 Seconds (Safe Mode)</span></p>
-                    <p style={{ margin: '5px 0' }}>Strategy: <span style={{ color: '#ffb300' }}>Multi-Indicator Consensus</span></p>
+                    <p style={{ margin: '5px 0' }}>Connection: <span style={{ color: '#2962ff' }}>WebSocket (Real-time)</span></p>
+                    {/* ডায়নামিক স্ট্র্যাটেজি ডিসপ্লে */}
+                    <p style={{ margin: '5px 0' }}>Strategy: <span style={{ color: '#ffb300', fontWeight: 'bold' }}>{currentStrategy}</span></p>
 
                     <div style={{ marginTop: '10px', padding: '8px', background: '#2a2e39', borderRadius: '4px', borderLeft: '3px solid #00e676' }}>
                         Optimization: <strong>Active (i3 Compatible)</strong>

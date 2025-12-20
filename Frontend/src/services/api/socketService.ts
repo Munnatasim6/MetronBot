@@ -18,9 +18,8 @@ class SocketService {
         this.socket.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                if (message.type === 'TICKER') {
-                    this.listeners.forEach(cb => cb(message.data));
-                }
+                // সব মেসেজ লিসেনারদের কাছে পাঠানো হবে, যাতে তারা টাইপ চেক করে কাজ করতে পারে
+                this.listeners.forEach(cb => cb(message));
             } catch (e) {
                 console.error("Socket message parse error", e);
             }
