@@ -4,13 +4,14 @@ import SentimentWidget from './Widgets/SentimentWidget';
 import RecentTrades from './Widgets/RecentTrades';
 import ArbitrageMonitor from './Widgets/ArbitrageMonitor';
 import TradingChart from './Widgets/TradingChart';
+import OrderBook from './Widgets/OrderBook'; // ✅ মিসিং ফাইল ইম্পোর্ট করা হলো
 
 const Dashboard = () => {
     // স্টেট ভেরিয়েবল
     const [sentimentData, setSentimentData] = useState<any>(null);
     const [arbitrageData, setArbitrageData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isFetching, setIsFetching] = useState(false); // সেফটি লক (Double request prevention)
+    const [isFetching, setIsFetching] = useState(false); // সেফটি লক
 
     // ১. ডাটা ফেচিং ফাংশন (সেফটি লক সহ)
     const fetchMarketData = async () => {
@@ -46,14 +47,11 @@ const Dashboard = () => {
 
     // ২. ইফেক্ট হুক (টাইমার সেটআপ - ২ সেকেন্ড)
     useEffect(() => {
-        // পেজ লোড হওয়ার সাথে সাথে প্রথম কল
         fetchMarketData();
 
-        // ⚠️ নিরাপদ টাইমার: ২০০০ms = ২ সেকেন্ড
-        // এটি i3 প্রসেসরে চাপ দিবে না এবং API Ban হওয়ার ঝুঁকি কমাবে
+        // ⚠️ নিরাপদ টাইমার: ২০০০ms = ২ সেকেন্ড (i3 অপ্টিমাইজড)
         const interval = setInterval(fetchMarketData, 2000);
 
-        // ক্লিনআপ ফাংশন (কম্পোনেন্ট আনমাউন্ট হলে টাইমার বন্ধ হবে)
         return () => clearInterval(interval);
     }, []);
 
@@ -72,17 +70,24 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* টপ সেকশন: মেইন চার্ট এবং লাইভ ট্রেড */}
+            {/* টপ সেকশন: মেইন চার্ট এবং সাইড প্যানেল */}
             <div style={{ display: 'grid', gridTemplateColumns: '75% 24%', gap: '1%', marginBottom: '20px' }}>
 
-                {/* চার্ট এরিয়া */}
-                <div style={{ height: '450px' }}>
+                {/* বামে: চার্ট এরিয়া */}
+                <div style={{ height: '500px' }}>
                     <TradingChart symbol="BTCUSDT" />
                 </div>
 
-                {/* ট্রেড হিস্ট্রি */}
-                <div style={{ height: '450px' }}>
-                    <RecentTrades />
+                {/* ডানে: অর্ডার বুক এবং ট্রেড হিস্ট্রি (Stacked) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '500px' }}>
+                    {/* ✅ ফিক্স: অর্ডার বুক উপরে */}
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <OrderBook />
+                    </div>
+                    {/* ✅ ফিক্স: ট্রেড হিস্ট্রি নিচে */}
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <RecentTrades />
+                    </div>
                 </div>
             </div>
 
